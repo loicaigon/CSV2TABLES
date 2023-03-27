@@ -1,0 +1,512 @@
+﻿#include 'XMPClass.jsinc'
+var IDUtils = (function()
+{
+	var idName = app.name;
+	var ids = idName == "Adobe InDesign Server";
+	var utils = 
+	{
+		initialDocCount:0,
+		
+		finalDocCount:0,
+		
+		getDocsLength:function()
+		{
+			return app.documents.length;
+		},
+	
+		getSelectionLength:function()
+		{
+			var length = app.selection.length;
+			return length;
+		},
+	
+		getSelectionType:function(selectionIndex)
+		{
+			var type = app.selection [ selectionIndex ].constructor.name;
+			return type;
+		},
+	
+		removeExtraDocs:function()
+		{
+			report.write("R1");
+			var newDocs = [], docToRemove;
+			report.write("this.finalDocCount:"+this.finalDocCount);
+			report.write("this.initialDocCount:"+this.initialDocCount);
+			report.write("this.finalDocCount > this.initialDocCount:"+(this.finalDocCount > this.initialDocCount));
+			
+			if ( this.finalDocCount > this.initialDocCount )
+			{
+				report.write("R2");
+				newDocs = app.documents.everyItem().getElements().splice ( 0, this.finalDocCount - this.initialDocCount);
+				report.write("R3");
+				while ( docToRemove = newDocs.pop() )
+				{
+					report.write("R4");
+					report.write("docToRemove:"+docToRemove.name);
+					docToRemove.isValid && docToRemove.close ( SaveOptions.NO );
+					report.write("R5");
+					this.finalDocCount--;
+					report.write("this.finalDocCount:"+this.finalDocCount);
+				}
+			}
+		},
+	
+		getGraphicProperties:function(gfx)
+		{
+			var props = {}, vb, lk = gfx.itemLink, linkFile, tempPage;
+			
+			vb = gfx.parent.visibleBounds;
+			props.largeur = Math.round ( Math.abs ( vb[3] - vb[1] )*1000 )/1000;
+			props.hauteur = Math.round ( Math.abs ( vb[2] - vb[0] )*1000 )/1000;
+			
+			tempPage = this.getPage ( gfx.parent );
+			props.page = tempPage == null ? null : tempPage.name;
+			props.parentLocked = gfx.parent.locked;
+			props.isOnMaster = tempPage == null ? null : tempPage.parent instanceof MasterSpread;
+			
+			
+			if ( ! ( lk.status != LinkStatus.NORMAL
+			|| lk.status != LinkStatus.LINK_OUT_OF_DATE ) )
+			{
+				props.url = "Lien manquant";
+				linkFile = null;
+			}
+			else
+			{
+				props.url = lk.filePath;
+				linkFile = File ( props.url );
+			}
+			if (( linkFile instanceof File) && linkFile.exists && XMPClass.loadXMPLibrary() )
+			{
+				var xmpFile = new XMPFile(linkFile.fsName, XMPConst.UNKNOWN, XMPConst.OPEN_FOR_READ);
+				var myXmp = xmpFile.getXMP();
+			}
+			
+
+
+			try
+			{
+				props.copyrightNotice = Utils.stripReturns ( lk.linkXmp.copyrightNotice );
+			}
+			catch(e)
+			{
+				props.copyrightNotice = "";
+			}
+		
+			try
+			{
+				props.description = Utils.stripReturns ( lk.linkXmp.description );
+			}
+			catch(e)
+			{
+				props.description = "";
+			}
+			
+			try
+			{
+				if ( XMPClass.loadXMPLibrary() )
+				{
+					props.instructions = ( linkFile == null )? "" : Utils.stripReturns ( XMPClass.getProperty ( myXmp, "photoshop", "Instructions" ));
+				}
+				else
+				{
+					throw Error();
+				}
+			}
+			catch(e)
+			{
+				props.instructions = "";
+			}
+		
+		try
+		{
+			if ( XMPClass.loadXMPLibrary() )
+			{
+				
+				props.authorsPosition = ( linkFile == null )? "" : Utils.stripReturns ( String ( XMPClass.getProperty ( myXmp, "photoshop", "AuthorsPosition" )) );
+			}
+			else
+			{
+				throw Error();
+			}
+		}
+		catch(e)
+		{
+			props.authorsPosition = "";
+		}
+			
+
+			return props;
+		},
+	
+		getTag:function(doc,tagName)
+		{
+			var tag = doc.xmlTags.itemByName(tagName);
+			return ( tag.isValid )? tag : doc.xmlTags.add(tagName);
+		},
+		
+		getStyles:function (doc, type )
+		{
+			if ( !doc || !(doc instanceof Document) || !doc.isValid) return [];
+			
+			var oStyles = this.getStylesNames( doc.allObjectStyles ), 
+			cStyles = this.getStylesNames ( doc.allCharacterStyles), 
+			pStyles = this.getStylesNames( doc.allParagraphStyles),
+			cellStyles = this.getStylesNames ( doc.allCellStyles ),
+			tStyles = this.getStylesNames ( doc.allTableStyles );
+			
+			switch ( type )
+			{
+				case "a" :
+					return oStyles.concat(pStyles).concat(cStyles);
+				case "o" :
+					return oStyles;
+				case "p" :
+					return pStyles;
+				case "c" :
+					return cStyles;
+				case "cl" :
+					return cellStyles;
+				case "t" :
+					return tStyles;
+				default:
+					return [];
+			}
+			
+		},
+		
+		getStylesNames:function (styles)
+		{
+			var nameArray = [];
+			var n = styles.length;
+			for (var i = 0; i < n; i++) 
+			{
+				nameArray [ nameArray.length ] = styles[i].name;
+			}
+			
+			return nameArray;
+		},
+	
+		getStyle:function(doc,styleName,styleType )
+		{
+			var cStyles = doc.allCharacterStyles,
+				pStyles = doc.allParagraphStyles,
+				oStyles = doc.allObjectStyles,
+				cellStyles = doc.allCellStyles,
+				tStyles = doc.allTableStyles,
+				styles= {p:pStyles, c:cStyles, o:oStyles, t:tStyles, cl:cellStyles},
+				style, found = false;
+					
+			while ( style = styles[styleType].pop() )
+			{
+				if ( style.name == styleName )
+				{
+					found = true;
+					break;
+				}
+			}
+		
+			return found ? style : null;
+				
+		},
+	
+		getItem:function(doc, label)
+		{
+			var apis = doc.allPageItems;
+			var item;
+			
+			while ( item = apis.pop() )
+			{
+				if ( item.label == label )
+				{
+					return item;
+				}
+			}
+		
+			return null;
+		},
+	
+		findChangeGrep:function ( target, findProps, changeProps, doChange )
+		{
+			var res;
+			
+			if ( target instanceof TextFrame && target.contents == "" ) return [];
+			
+			app.findGrepPreferences = app.changeGrepPreferences = null;
+			
+			if ( findProps ) app.findGrepPreferences.properties = findProps;
+			
+			if ( changeProps ) app.changeGrepPreferences.properties = changeProps;
+			if ( doChange ) target.changeGrep();
+			else return target.findGrep();
+			
+		},
+	
+		createStyle:function(doc,styleName,styleType, styleProps)
+		{
+			var style = IDUtils.getStyle(doc,styleName,styleType),
+				cStyles = doc.characterStyles,
+				pStyles = doc.paragraphStyles,
+				oStyles = doc.objectStyles,
+				styles= {p:pStyles, c:cStyles, o:oStyles}
+			if ( style == null )
+			{
+				style = styles[ styleType ].add ( {name: styleName} );
+				if ( styleProps )
+				{
+					for ( prop in styleProps )
+					{
+						try
+						{
+							style[prop] = styleProps[prop];
+						}
+						catch(e)
+						{
+							
+						}
+					}
+				}
+			}
+		
+			return style;
+		},
+	
+		getPage:function(item)
+		{
+			var pageitem, page;
+			
+			if ( item instanceof Character
+			|| item instanceof Text
+			|| item instanceof Paragraph
+			|| item instanceof InsertionPoint
+			|| item instanceof Word
+			|| item instanceof Line
+			|| item instanceof Story)
+			{
+				pageitem = item.parentTextFrames[0];
+			}
+			
+			pageitem = (pageitem!=undefined)? pageitem : item;
+			
+			if (app.version[0] <= 6 || app.scriptPreferences.version < 7)
+			{
+				var page = pageitem.parent, 
+				prefs = app.documents[0].viewPreferences.rulerOrigin,
+				middle;
+				app.documents[0].viewPreferences.rulerOrigin = RulerOrigin.SPREAD_ORIGIN;
+	
+				do
+				{
+					if ( page.constructor.name == "Spread" || page.constructor.name == "MasterSpread")
+					{ 
+						middle = page.pages[0].bounds[3];
+						itemX = pageitem.visibleBounds[1];
+						page = itemX > middle ? page.pages[1] : page.pages[0]; 
+						break;
+					}
+					else if ( page.constructor.name == "Character" )
+					{
+						page = page.parentTextFrames[0];
+						this.getPage ( page );
+						return;
+					}
+				
+					page = page.parent;
+					
+				}
+				while ( page.constructor.name != "Page")
+				
+				app.documents[0].viewPreferences.rulerOrigin = prefs;
+			}
+			else
+			{
+				try
+				{
+					if ( pageitem instanceof TextStyleRange ) pageitem = pageitem.parentTextFrames[0];
+					
+					page = pageitem.parentPage;
+				}
+				catch(e)
+				{
+					report.logError(e.line+">>"+e.message);
+					return null;
+				}
+			}
+			return page;
+		},
+	
+		removeExtraContents:function(bloc)
+		{
+			if ( bloc.contents.length == 0 ) return;
+			
+			var st = bloc.parentStory;
+			var lastCharIsTab = /\t|\x08/.test ( bloc.characters[-1].contents ) || bloc.characters[-1] == SpecialCharacters.RIGHT_INDENT_TAB;
+			var end = lastCharIsTab? ( bloc.contents.length > 2 ? bloc.characters[-2].index : st.characters[-1].index ) : bloc.characters[-1].index;
+			//var end = st.characters[-1].index;
+				
+			
+			var charsToRemove = st.characters.itemByRange ( end, st.characters[-1].index );
+				
+			if ( charsToRemove.isValid )	charsToRemove.remove();
+			
+		},
+	
+		fitTable:function ( bloc )
+		{
+			var lastCharInBloc = bloc.characters [ bloc.contents.length - 1 ];
+			if ( lastCharInBloc
+			&& lastCharInBloc.tables.length )
+			{
+				try
+				{
+					var ho = lastCharInBloc.tables[0].cells[-1].characters[-1].horizontalOffset;
+					$.writeln ( ho );
+				}
+				catch(e)
+				{
+					$.writeln ( "fitting" );
+					bloc.fit ( FitOptions.FRAME_TO_CONTENT );
+				}
+			}
+		},
+	
+		getOverflowingTextFrames:function(doc)
+		{
+			var apis = doc.allPageItems;
+			var overflowing = [];
+			var pi;
+			
+			while ( pi = apis.pop() )
+			{
+				if ( pi instanceof TextFrame && pi.overflows )
+				{
+					overflowing [ overflowing.length ]  = pi;
+				}
+			}
+		
+			return overflowing;
+			
+		},
+	
+		getItemDims:function(item)
+		{
+			var vb = item.visibleBounds;
+			return { w : Math.round ( Math.abs ( vb[3] - vb[1] ) * 1000 )/1000,
+							h: Math.round ( Math.abs ( vb[2] - vb[0] ) * 1000 )/1000 };
+		},
+	
+		zoomToSelection:function()
+		{
+			try
+			{
+			var mySel = app.selection;
+			var myWindow = app.activeWindow;
+			var pageBounds = myWindow.activePage.bounds;
+			var pageHeight = pageBounds[2] - pageBounds[0];
+			var pageWidth = pageBounds[3] - pageBounds[1];
+			if(mySel.length > 0){
+				for(myCounter = 0; myCounter < mySel.length; myCounter ++){
+					var myObject = mySel[myCounter];
+					if(myObject.hasOwnProperty("parentTextFrames")){
+						myBounds = app.selection[0].parentTextFrames[0].geometricBounds;
+						var myPage = app.selection[0].parentTextFrames[0].parentPage;
+					}else if(myObject.hasOwnProperty("geometricBounds")){
+						myBounds = myObject.geometricBounds;
+						var myPage = app.selection[0].parentPage;
+					}else{
+						exit();
+					}
+					if(myCounter==0){myX1 = myBounds[1]; myY1 = myBounds[0]; myX2 = myBounds[3]; myY2 = myBounds[2];}
+					if (myBounds[0] < myY1){myY1 = myBounds[0];}
+					if (myBounds[1] < myX1){myX1 = myBounds[1];}
+					if (myBounds[2] > myY2){myY2 = myBounds[2];}
+					if (myBounds[3] > myX2){myX2 = myBounds[3];}
+				}
+			var objHeight = myY2 - myY1;
+			var objWidth = myX2 - myX1;
+			var hRatio = pageHeight/objHeight;
+			var wRatio = pageWidth/objWidth;
+			var zoomRatio = Math.min(hRatio, wRatio);
+			myWindow.activePage = myPage;
+			myWindow.zoom(ZoomOptions.fitPage);
+			myWindow.zoomPercentage = myWindow.zoomPercentage * zoomRatio;
+			}
+			}
+			catch(e)
+			{
+			}
+		},
+		
+		unanchorItem:function(pi)
+		{
+			if ( pi.isValid &&
+				pi.hasOwnProperty('anchoredObjectSettings') &&
+				(pi.parent instanceof Character) &&
+				(pi.anchoredObjectSettings).isValid )
+				{
+					try
+					{
+						vb = pi.visibleBounds;
+						pi.anchoredObjectSettings.anchoredPosition = AnchorPosition.ANCHORED
+						pi.anchoredObjectSettings.releaseAnchoredObject();
+						pi.visibleBounds = vb;
+					}
+					catch(e)
+					{
+						
+					}
+				}
+			
+			return pi;
+		},
+	
+		unanchorAll:function(doc)
+		{
+			var pis = doc.allPageItems, pi;
+			var piLength = pis.length;
+			var vb;
+			
+			while ( piLength-- )
+			{
+				pi = pis[ piLength ];
+				
+				this.unanchorItem(pi);
+			}
+		},
+	
+		exportToPDF:function(/* Objet Document */ doc,/*str 'x-y' */ myPageRange,/* Objet File *.pdf */ myPDFFile, /* Objet preset */ myPDFExportPreset, async)
+		{
+			this[(ids? "ids" : "id") + "ExportToPDF"] ( doc, myPageRange, myPDFFile, myPDFExportPreset, async );
+		},
+	
+		idExportToPDF:function (/* Objet Document */ doc,/*str 'x-y' */ myPageRange,/* Objet File *.pdf */ myPDFFile, /* Objet preset */ myPDFExportPreset, async) {
+			app.pdfExportPreferences.pageRange = myPageRange;
+			if ( async === true )
+			{
+				doc.asynchronousExportFile (ExportFormat.pdfType, myPDFFile, false, myPDFExportPreset, undefined, undefined);
+			}
+			else
+			{
+				doc.exportFile(ExportFormat.pdfType, myPDFFile,  false, myPDFExportPreset, undefined, undefined);
+				if(myPDFFile.exists==true)
+				{
+					return true;
+				}
+			}
+		},
+	
+		idsExportToPDF:function (/* Objet Document */ doc,/*str 'x-y' */ myPageRange,/* Objet File *.pdf */ myPDFFile, /* Objet preset */ myPDFExportPreset, async) {
+			app.pdfExportPreferences.pageRange = myPageRange;
+		
+			doc.exportFile(ExportFormat.pdfType, myPDFFile, myPDFExportPreset);
+			if(myPDFFile.exists==true)
+			{
+				return true;
+			}
+			
+		},
+		
+	}
+
+	return utils;
+})();

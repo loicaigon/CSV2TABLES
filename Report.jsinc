@@ -1,0 +1,84 @@
+﻿//This interface offers a tool for reporting
+var Report= function(f){
+
+	this.logFile = f? f : File(Folder.temp+"/report.txt");
+    this.logFile.encoding = "UTF-8";
+	
+	this.debug  = true;
+	
+	this.displayTime = function(t, msg){
+		this.debug && this.write (t +" ||| "+msg);
+	};
+
+	this.create = function(){
+	   this.write("");
+	};
+
+	this.error = function(msg){
+		this.debug &&  this.write ("\tERROR : "+msg);
+	};
+	
+	this.success = function(msg){
+		this.debug && this.write ("\tSUCCESS : "+msg);
+	};
+
+	this.warn = function(msg){
+		this.debug && this.write ("\tWARNING : "+msg);
+	};
+
+	this.write = function(msg){
+			if ( !this.debug ) return;
+			this.logFile.open('a');	
+			this.logFile.writeln(msg);  
+			this.logFile.close();
+	};
+     
+	this.clear = function(){
+		this.logFile.open('w'); this.logFile.write(""); this.logFile.close();
+	};
+        
+	this.remove = function(){
+		 if(this.logFile.exists){ this.logFile.remove(); }
+	};
+
+	this.execute = function(){
+		this.logFile.execute();
+	};
+
+	this.save = function(newfile){
+		if ( !newfile || !(newfile instanceof File) ) return;
+		newfile.encoding = "UTF-8";
+		this.logFile=newfile;
+	};
+
+	this.header = function(msg){
+		
+			this.rule();
+			this.write (">>>	"+msg );
+			this.rule();
+	};
+	
+	this.rule = function(bLight) {
+		var c  = bLight? "-" : "=";
+		var s = [], n = 45;
+		while ( n-- ) s[n] = c;
+		this.write ( s.join("") );
+	};
+	
+	this.hello = function(msg){
+		this.remove();
+		this.debug && this.header ( (msg? msg : "Script run at")+" // "+new Date() );
+	}
+
+	this.tick = function(msg){
+		var d = $.hiresTimer/1000000;
+		this.write ( "TICK:"+d+" seconds :: "+msg );
+	},
+
+	this.dumpErrors = function(errorArray){
+		this.rule();
+		this.write("===================ERRORS===================");
+		this.rule();
+		this.write(errorArray.join("\r"));
+	}
+};

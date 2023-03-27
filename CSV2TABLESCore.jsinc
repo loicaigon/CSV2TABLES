@@ -1,0 +1,217 @@
+﻿#include 'IDUtils.jsinc'
+#include 'CSVUtils.jsinc'
+#include 'Report.jsinc'
+
+
+CVS2TABLESCore = function()
+{
+	var sourceDoc,
+		tempDoc, tempFrame;
+		
+	var core = 
+	{
+		checkMergeContext:function()
+		{
+			
+			IDUtils.initialDocCount = IDUtils.getDocsLength();
+			
+			//Contrôle sur doc ouvert
+			if (IDUtils.initialDocCount == 0 )
+			{
+				//Echec du script
+				alert('Please open a document first');
+				return false;
+			}
+		
+			//Contrôle sur sélection active
+			if ( app.selection.length != 1 
+				||  ( app.selection[0].constructor.name == "Table" && app.selection[0].rows.length > 1 )	
+				|| ( app.selection[0].constructor.name != "Table" && app.selection[0].constructor.name != "Cell"  && !(app.selection[0].parent instanceof Cell) ) )
+			{
+				//Echec du script
+				alert('Please select a row before running the script.');
+				return false;
+			}
+		
+			return true;
+		},
+	
+		mergeTable:function()
+		{
+			var row, currentSelection, newDocs = [], sourceTable,tempTable, cellsLg = 0 , i =0, j=0, n = 0, 
+			tempDocName, mergeDoc, mergeDocPages, mergeDocPage, mergedRow, newRow,
+			usrEnableRedraw = app.scriptPreferences.enableRedraw;
+			
+			//=================================== CONTRÔLES =================================== //
+			
+			if ( !this.checkMergeContext() ){  return false; }
+			
+			sourceDoc = app.activeDocument;
+			
+			currentSelection = app.selection[0];
+			if ( currentSelection instanceof Table)
+			{
+				row = currentSelection.rows[0];
+			}
+			else if ( !(currentSelection instanceof Cell) )
+			{ 
+				row = currentSelection.parent.parentRow;
+			}
+			else if ( currentSelection.cells.length != currentSelection.parentRow.parent.columnCount )
+			{
+				row = currentSelection.parentRow;
+			}
+			else
+			{
+				row = currentSelection;//( currentSelection.cells.length == 1 )? currentSelection.parentRow : currentSelection ;
+			}
+			//alert("3");
+			
+			//Check if row contains datamerge fields
+			if ( /<<[^>]+>>/.test ( row.cells.everyItem().texts.everyItem().contents ) == false )
+			{
+				if ( !confirm ("No datamerge pattern found. Do you want to merge anyway ?", true) )
+				{
+					return false;
+				}
+			}
+		
+			//=================================== DEMARRAGE DU SCRIPT =================================== //
+			
+			sourceTable = row.parent;
+			
+			//Récupération du fichier CSV source et application au doc temporaire
+			csvFile = CSVUtils.getSourceFile ( sourceDoc );
+			
+			
+			if ( csvFile == null )
+			{
+				alert( "Unable to retrieve the CSV File" );
+				return false;
+			}
+			
+			app.scriptPreferences.enableRedraw = false;
+			
+			//Copie de la ligne de tableau dans un doc à part
+			tempDoc = app.documents.add(true);
+			tempDocName = tempDoc.name;
+			tempTable = tempDoc.textFrames.add().tables.add(undefined, undefined, {columnCount:sourceTable.columnCount, bodyRowCount:1, headerRowCount:0});
+			cellsLg = row.cells.length;
+			for ( i=0 ; i<cellsLg ; i++ )
+			{
+				row.cells[i].texts[0].duplicate ( LocationOptions.UNKNOWN , tempTable.cells[i].insertionPoints[0] );
+			}
+
+			
+			
+			CSVUtils.setDMProps( tempDoc );
+			CSVUtils.setDMOpts( tempDoc );
+			
+			if ( !CSVUtils.loadCSVFile ( csvFile, tempDoc ) )
+			{
+				IDUtils.removeExtraDocs();
+				app.scriptPreferences.enableRedraw = usrEnableRedraw;
+				return {failed:true , canceled:false, msg:"Unable to load the CSV File"};
+			}
+		
+			CSVUtils.setupDataMergeOptions ( true, true, true, 50 );
+			CSVUtils.setupDataMergeProps ( RecordsPerPage.SINGLE_RECORD, RecordSelection.ALL_RECORDS,  undefined );
+			
+			var openDocsBeforeMergeDb = this.getDocDB(), mergedDocs;
+
+			CSVUtils.merge();
+
+			var docs = app.documents.everyItem().getElements(), nDoc, nDocId, 
+			tempDocId = tempDoc.id, allMergedDocs = [], pagesCount, pages;
+			n = docs.length, i = 0, run = false;
+			row.cells.everyItem().contents = "";
+
+			var parentTable = row.parent;
+			var bodyRowCount = parentTable.bodyRowCount;
+			var headerRowCount = parentTable.headerRowCount;
+			var startIndex = headerRowCount+bodyRowCount;
+			
+			for(i=0;i<n;i++){
+				nDoc = docs[i];
+				nDocId = nDoc.id;
+				if(typeof openDocsBeforeMergeDb[nDocId] == "undefined" && nDocId!=tempDocId){
+					
+					allMergedDocs.push(nDoc);
+					nDoc.textFrames.everyItem().fit ( FitOptions.FRAME_TO_CONTENT );
+
+					pages = nDoc.pages;
+					pagesCount = pages.length;
+
+					for(j=0; j<pagesCount; j++){
+
+						mergedRow = pages[j].textFrames[0].tables[0].rows[0];
+						if(!run){
+							newRow = row;
+							run = true;
+						}
+						else {
+							parentTable.bodyRowCount+=1;
+							newRow = parentTable.rows[startIndex];
+							startIndex+=1;
+						}
+
+						cellsLg = mergedRow.cells.length;
+						while(cellsLg--){
+							try{
+								mergedRow.cells[cellsLg].texts[0].duplicate(
+									LocationOptions.UNKNOWN , 
+									newRow.cells[cellsLg].insertionPoints[0]
+								)
+							}
+							catch(err){
+								
+							}
+						}
+					}
+					
+				}
+			}
+
+			
+			//=================================== NETTOYAGE FINAL =================================== //
+			
+			//Puis suppression de ces fichiers			
+			allMergedDocs.push(tempDoc);
+			n = allMergedDocs.length;
+			while(n--){
+				allMergedDocs[n].isValid && allMergedDocs[n].close(SaveOptions.NO);
+			}
+			
+			//Réinitialise prefs pour le rafraichissement d'écran
+			app.scriptPreferences.enableRedraw = usrEnableRedraw;
+			
+			
+			//=================================== Succès du script =================================== //
+			return true;
+		},
+
+		getDocDB:function(){
+			var docs = app.documents.everyItem().getElements(), db = {}, n = docs.length, nDoc;
+
+			while(n--){
+				nDoc = docs[n];
+				db[nDoc.id] = nDoc;
+			}
+
+			return db;
+		}
+		
+	};
+
+	return core;
+};
+
+CVS2TABLESCore.getInstance = function()
+{
+	if ( CVS2TABLESCore.instance === undefined )
+	{
+		CVS2TABLESCore.instance = CVS2TABLESCore();
+	}
+
+	return CVS2TABLESCore.instance;
+}
